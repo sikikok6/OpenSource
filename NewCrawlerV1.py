@@ -1,72 +1,74 @@
 import time
 import requests
 import pandas as pd
-
-
-
-
-def getbusinfo(head,tail,bus_num,bus_dir):
-    cookies = {}
-
-    headers = {
-        'token': head + time.strftime('%H%M') + tail,
-    }
-
-    data = {
-        'action': 'dy',
-        'routeName': bus_num,
-        'dir': bus_dir,
-        'lang': 'zh-tw',
-        'device': 'web'
-    }
-
-    response = requests.post('https://bis.dsat.gov.mo:37812/macauweb/routestation/bus', headers=headers,
-                             cookies=cookies, data=data)
-
-    return response.json()
-
-def generate_info(busdata):
-    InfoList = []
-######REVERSED HERE#####
-    for i in reversed(range(len(busdata))):
-        staInfo = busdata[i]
-        staCode = staInfo['staCode']
-
-        for j in range(len(staInfo['busInfo'])):
-            busInfo = staInfo['busInfo'][j]
-
-            busPlate = busInfo['busPlate']
-            status = busInfo['status']
-
-            dic_key = ['busPlate','status','staCode']
-            dic_value = [busPlate,status,staCode]
-            dic_info = dict(zip(dic_key,dic_value))
-            print(dic_info)
-            InfoList.append(dic_info)
-    return InfoList
-
-##巴士列表中是否出现过这辆车,并根据此生成新车牌号
-def CheckAndGenBusPlate(RawBusPlate):
-    if (RawBusPlate not in Bus_Dic):
-        Bus_Dic[RawBusPlate] = 0
-
-    return RawBusPlate + '-' + str(Bus_Dic[RawBusPlate])
-
-##是否需要向时刻表中添加车牌作为索引
-def CheckAddTable(busPlate):
-    if(busPlate not in tableInfo['Bus'].values):
-        NewAdd=[busPlate]
-        for _ in range(len(colName)-1):
-            NewAdd.append("")
-        rowNum = tableInfo.shape[0]
-        tableInfo.loc[rowNum] = NewAdd
-
-def UpdateBusPlate(NewBusPlate):
-    RawBusPlate = NewBusPlate[:6]
-    Bus_Dic[RawBusPlate] += 1
-
+import git
 
 def Main_Crawler():
+    def getbusinfo(head, tail, bus_num, bus_dir):
+        cookies = {}
+
+        headers = {
+            'token': head + time.strftime('%H%M') + tail,
+        }
+
+        data = {
+            'action': 'dy',
+            'routeName': bus_num,
+            'dir': bus_dir,
+            'lang': 'zh-tw',
+            'device': 'web'
+        }
+
+        response = requests.post('https://bis.dsat.gov.mo:37812/macauweb/routestation/bus', headers=headers,
+                                 cookies=cookies, data=data)
+
+        return response.json()
+
+    def generate_info(busdata):
+        InfoList = []
+        ######REVERSED HERE#####
+        for i in reversed(range(len(busdata))):
+            staInfo = busdata[i]
+            staCode = staInfo['staCode']
+
+            for j in range(len(staInfo['busInfo'])):
+                busInfo = staInfo['busInfo'][j]
+
+                busPlate = busInfo['busPlate']
+                status = busInfo['status']
+
+                dic_key = ['busPlate', 'status', 'staCode']
+                dic_value = [busPlate, status, staCode]
+                dic_info = dict(zip(dic_key, dic_value))
+                print(dic_info)
+                InfoList.append(dic_info)
+        return InfoList
+
+    ##巴士列表中是否出现过这辆车,并根据此生成新车牌号
+    def CheckAndGenBusPlate(RawBusPlate):
+        if (RawBusPlate not in Bus_Dic):
+            Bus_Dic[RawBusPlate] = 0
+
+        return RawBusPlate + '-' + str(Bus_Dic[RawBusPlate])
+
+    ##是否需要向时刻表中添加车牌作为索引
+    def CheckAddTable(busPlate):
+        if (busPlate not in tableInfo['Bus'].values):
+            NewAdd = [busPlate]
+            for _ in range(len(colName) - 1):
+                NewAdd.append("")
+            rowNum = tableInfo.shape[0]
+            tableInfo.loc[rowNum] = NewAdd
+
+    def UpdateBusPlate(NewBusPlate):
+        RawBusPlate = NewBusPlate[:6]
+        Bus_Dic[RawBusPlate] += 1
+
+    def Commit_Crawler_File(file_name, message):
+        repo = git.Repo.init()
+        repo.git.add(file_name)
+        repo.git.commit(m=message)
+        repo.git.push()
 
 
     head = "53b920227eca2902122042d0728abde7"
@@ -84,24 +86,22 @@ def Main_Crawler():
         staInfo = busdata[i]
         staCode = staInfo['staCode']
         staList.append(staCode)
-    global colName
     colName = staList.copy()
     colName.insert(0, 'Bus')
     colValue = ['' for i in range(len(colName))]
     # 列表不会吞重复值
     rowDic = dict(zip(colName, colValue))
-    global tableInfo
+
     tableInfo = pd.DataFrame(data=None, columns=colName)
 
-    global Bus_Dic
     Bus_Dic = {}
 
-    CreateTime = time.strftime('%H%M')
-    CsvName = 'New-' + '51-' + '0-' + CreateTime + '.csv'
+    CreateTime = time.strftime('%m-%d-%H:%M')
+    CsvName = bus_num + '-' + bus_dir + '-' + CreateTime + '.csv'
 
     #MainPart
     while True:
-        for _ in range(20):
+        for _ in range(10):
             busdata_txt = getbusinfo(head, tail, bus_num, bus_dir)
             busdata = busdata_txt['data']['routeInfo']
             InfoList = generate_info(busdata)
@@ -137,8 +137,14 @@ def Main_Crawler():
                     if (tableInfo.iloc[index_row, index_col] == ""):
                         tableInfo.iloc[index_row, index_col] = time_str
                     index_info += 1
-            # tableInfo.to_csv(CsvName)
+
             time.sleep(8)
+        ##WriteToCSV
+        tableInfo.to_csv(CsvName)
+        ##CommitToGitHub
+        Message="Commit Csv At" + time.strftime('%H%M') + "Time"
+        Commit_Crawler_File(CsvName,Message)
+
 
 
 Main_Crawler()
