@@ -2,8 +2,42 @@ import time
 import requests
 import pandas as pd
 import git
+from seleniumwire import webdriver
+from multiprocessing.pool import Pool
 
-def Main_Crawler():
+def token_generate(bus_num, bus_dir):
+    url = 'https://bis.dsat.gov.mo:37812/macauweb/routeLine.html?routeName={}&direction={}&language=zh-tw&ver=3.6.8'.format(bus_num, bus_dir)
+    option = webdriver.ChromeOptions()
+    option.add_argument('headless')
+    driver = webdriver.Chrome(chrome_options=option)
+    driver.get(url)
+    time.sleep(5)
+    for request in driver.requests:
+        if request.url == "https://bis.dsat.gov.mo:37812/macauweb/routestation/bus":
+            token = request.headers.get("token")
+            head = token[:-12]
+            tail = token[-8:]
+    return head, tail
+
+def token_list_renew(bus_list, token_list=None):
+    if token_list is None:
+        token_list = list("None")
+    if token_list[0] == time.strftime('%D'):
+        return token_list
+    else:
+        token_list = [time.strftime('%D')]
+        token_dict = dict()
+        for bus in bus_list:
+            bus_num = bus[0:bus.find('-')]
+            bus_dir = bus[-1]
+            head, tail = token_generate(bus_num, bus_dir)
+            token_dict[bus] = [head, tail]
+            #token_list.append([bus, head, tail])
+        token_list.append(token_dict)
+        return token_list
+
+
+def Main_Crawler(bus_num,bus_dir,head,tail):
     def getbusinfo(head, tail, bus_num, bus_dir):
         cookies = {}
 
@@ -40,7 +74,7 @@ def Main_Crawler():
                 dic_key = ['busPlate', 'status', 'staCode']
                 dic_value = [busPlate, status, staCode]
                 dic_info = dict(zip(dic_key, dic_value))
-                print(dic_info)
+                #print(dic_info)
                 InfoList.append(dic_info)
         return InfoList
 
@@ -70,12 +104,6 @@ def Main_Crawler():
         repo.git.commit(m=message)
         repo.git.push()
 
-
-    head = "53b920227eca2902122042d0728abde7"
-    tail = "b7d99927"
-    bus_num = "51"
-    bus_dir = "0"
-
     busdata_txt = getbusinfo(head, tail, bus_num, bus_dir)
     busdata = busdata_txt['data']['routeInfo']
     InfoList = generate_info(busdata)
@@ -96,12 +124,15 @@ def Main_Crawler():
 
     Bus_Dic = {}
 
-    CreateTime = time.strftime('%m-%d-%H:%M')
-    CsvName = bus_num + '-' + bus_dir + '-' + CreateTime + '.csv'
+    CreateTime = time.strftime('%m%d-%H%M')
+    CsvName = bus_num + bus_dir + '-' + CreateTime + '.csv'
 
     #MainPart
-    while True:
-        for _ in range(10):
+    #WORK 8H
+
+    for _ in range(60):
+        #EVERY 8MINUTE
+        for _ in range(60):
             busdata_txt = getbusinfo(head, tail, bus_num, bus_dir)
             busdata = busdata_txt['data']['routeInfo']
             InfoList = generate_info(busdata)
@@ -142,12 +173,30 @@ def Main_Crawler():
         ##WriteToCSV
         tableInfo.to_csv(CsvName)
         ##CommitToGitHub
-        Message="Commit Csv At" + time.strftime('%H%M') + "Time"
+        Message="Commit Csv At " + time.strftime('%H%M')
         Commit_Crawler_File(CsvName,Message)
+        print(f"{CsvName}:{Message}")
 
 
+if __name__ == '__main__':
+    Bus_List = ['25B-0','25B-1',
+                '26-0', '26-1',
+                '26A-0', '26A-1',
+                '50-0','51-0',
+                '51A-0','51A-1']
+    Token_List = token_list_renew(Bus_List)
+    print("FinishedGenerateToken")
+    p = Pool(len(Bus_List))
 
-Main_Crawler()
+    for (key, value) in Token_List[1].items():
+        bus_num = key[0:key.find('-')]
+        bus_dir = key[-1]
+        head = value[0]
+        tail = value[1]
+        p.apply_async(Main_Crawler,args=(bus_num,bus_dir,head,tail,))
+    p.close()
+    p.join()
+
 
 
 
